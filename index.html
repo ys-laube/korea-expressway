@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>대한민국 고속도로 번호 지도</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --sea: #e8eef3;
+    --land: #ffffff;
+    --prk: #f1f1ee;
+    --border: #d0d7de;
+    --border-strong: #8b949e;
+    --text: #1f2328;
+    --text2: #656d76;
+    --text3: #8b949e;
+    --elevated: #ffffff;
+    --halo: #ffffff;
+    --font: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font); }
+  body { max-width: 780px; margin: 0 auto; padding: 16px 14px 48px; }
+  h1 { font-size: 1.45rem; margin: 0 0 6px; line-height: 1.3; }
+  .lead { color: var(--text2); font-size: 0.95rem; margin: 0 0 18px; line-height: 1.5; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 10px; }
+  .field { flex: 1 1 200px; min-width: 0; }
+  label { display: block; font-size: 12px; color: var(--text2); margin-bottom: 4px; }
+  select, button {
+    font: inherit; font-size: 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); padding: 8px 12px; cursor: pointer;
+  }
+  select { width: 100%; }
+  button:hover { background: #f0f2f5; }
+  button:active { transform: scale(0.98); }
+  .hint { font-size: 13px; color: var(--text2); margin: 10px 0 20px; line-height: 1.45; }
+  details {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 14px; margin-bottom: 10px;
+  }
+  details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+  details[open] summary { margin-bottom: 8px; }
+  ul { margin: 0; padding-left: 1.2em; }
+  li { margin: 6px 0; line-height: 1.45; font-size: 14px; color: var(--text2); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text2); font-weight: 600; }
+  .sources { font-size: 12px; color: var(--text3); margin-top: 18px; line-height: 1.5; }
+  .sources a { color: var(--text2); }
+  #map {
+    position: relative; width: 100%; aspect-ratio: 1108 / 1541; touch-action: none;
+    user-select: none; overflow: hidden; border-radius: 16px; border: 1px solid var(--border);
+    background: var(--sea); cursor: grab;
+  }
+  #map:active { cursor: grabbing; }
+  #map svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  #overlay { pointer-events: none; }
+  #panel {
+    position: absolute; left: 8px; right: 8px; top: 8px; max-width: 380px;
+    background: var(--elevated); border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px 12px; box-shadow: 0 4px 16px rgba(0,0,0,.08); display: none;
+  }
+  #panel .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  #panel .badge {
+    color: #fff; border-radius: 6px; padding: 1px 8px; font-weight: 700; font-size: 14px;
+  }
+  #panel .name { font-weight: 600; font-size: 16px; }
+  #panel .close { margin-left: auto; cursor: pointer; color: var(--text3); font-size: 13px; background: none; border: none; padding: 0; }
+  #panel .meta, #panel .note { font-size: 13px; color: var(--text2); margin-top: 4px; line-height: 1.4; }
+</style>
+</head>
+<body>
+  <h1>대한민국 고속도로 번호 지도</h1>
+  <p class="lead">실제 노선 모양 그대로 그린 고속도로 지도예요. 번호나 선을 누르면 노선 이름이 나오고, 손가락 두 개나 버튼으로 확대할 수 있어요.</p>
+
+  <section>
+    <div class="toolbar">
+      <div class="field">
+        <label for="find">노선 찾기</label>
+        <select id="find"><option value="">번호·이름 선택</option></select>
+      </div>
+      <button type="button" id="btnZoomIn">확대</button>
+      <button type="button" id="btnZoomOut">축소</button>
+      <button type="button" id="btnReset">전체 보기</button>
+    </div>
+    <div id="map" aria-label="고속도로 지도">
+      <svg id="base" viewBox="0 0 1108 1541" preserveAspectRatio="xMidYMid meet"></svg>
+      <svg id="overlay"></svg>
+      <div id="panel"></div>
+    </div>
+    <p class="hint">전체 화면에서는 큰 노선 번호만 보이고, 확대하면 지선·순환선 번호와 도시 이름이 더 나타나요.</p>
+  </section>
+
+  <details>
+    <summary>번호 붙이는 규칙</summary>
+    <ul>
+      <li>남북으로 달리는 노선은 홀수, 동서로 달리는 노선은 짝수예요.</li>
+      <li>남북 노선은 서쪽에서 동쪽으로, 동서 노선은 남쪽에서 북쪽으로 갈수록 번호가 커져요. 예: 서해안 15 → 중앙 55 → 동해 65, 남해 10 → 영동 50.</li>
+      <li>큰 간선은 끝자리가 5(남북)나 0(동서)이고, 그 사이 보조 간선은 다른 끝자리를 써요.</li>
+      <li>세 자리는 지선(앞 두 자리가 본선 번호, 예: 104 남해제2지선)이나 순환선(100 수도권제1순환, 600 부산외곽순환)이에요.</li>
+      <li>경부선만 상징성 때문에 예외로 1번이에요.</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>표시한 노선</summary>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>번호</th><th>이름</th><th>OSM 이름</th></tr></thead>
+      <tbody id="routeTable"></tbody>
+    </table></div>
+  </details>
+
+  <details>
+    <summary>확인이 필요한 부분</summary>
+    <ul>
+      <li>선형은 OpenStreetMap에 그려진 개통 구간 기준이고, 공사 중 구간은 뺐어요. 그래서 14·20·29·65번 등은 중간이 끊겨 보여요.</li>
+      <li>같은 번호를 여러 노선이 함께 써요: 12번(무안~광주·광주~대구), 35번(통영~대전·중부), 17번(평택~파주·익산~평택·지선), 171번(용인~서울·오산~화성).</li>
+      <li>52번은 광주~원주선(경기 광주)이고, 세종~포천선은 29번이에요.</li>
+      <li>40번의 OSM 이름은 평택~영월선이에요. 예전 이름 평택~제천선에서 바뀐 공식 시점은 확인하지 못했어요.</li>
+      <li>노선 이름과 옛 이름은 OSM 태그 그대로이고, 길이·개통 연도는 검증하지 못해 넣지 않았어요.</li>
+      <li>울릉도·독도는 지도 범위 밖이에요.</li>
+    </ul>
+  </details>
+
+  <p class="sources">
+    출처: OpenStreetMap 고속국도 노선 (Overpass API, 2026-11-10 조회)
+    © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, ODbL ·
+    해안선·경계: Natural Earth 10m
+  </p>
+
+<script>
+const PAL = ["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2","#db2777","#65a30d","#ea580c","#4f46e5","#0d9488","#b45309"];
+const NOTES = {
+  "광주~대구선": "옛 이름 88올림픽고속도로. ‘달빛고속도로’라는 별칭으로도 불려요.",
+  "무안~광주선": "광주~대구선과 같은 12번을 함께 써요.",
+  "중부선": "35번 북쪽 구간이에요. 남쪽은 통영~대전선이 같은 35번을 써요.",
+  "통영~대전선": "35번 남쪽 구간으로, 대전 북쪽에서 중부선으로 이어져요.",
+  "함양~울산선": "OSM에는 개통 구간만 그려져 있어요. 나머지 구간 상태는 미확인이에요.",
+  "새만금~포항선": "개통된 구간만 그려져 중간이 끊겨 보여요.",
+  "동해선": "아직 이어지지 않은 구간이 있어 끊겨 보여요.",
+  "세종~포천선": "옛 이름 구리~포천선. 개통 구간만 그려져 있어요.",
+  "평택~영월선": "OSM 현재 이름은 평택~영월선이에요. 예전 이름 평택~제천선은 OSM 태그에 없어 변경 시점은 미확인이에요.",
+  "광주~원주선": "여기서 광주는 경기도 광주예요. 흔히 제2영동고속도로라고 불러요.",
+  "익산~평택선": "OSM 별칭은 서부내륙선이에요. 일부 구간만 개통돼 있어요.",
+  "평택~파주선": "17번은 평택~파주선, 익산~평택선, 평택~파주선의 지선이 함께 써요.",
+  "당진~청주선": "옛 이름 아산~청주선이에요.",
+  "서산~영덕선": "옛 이름 당진~영덕선이에요.",
+  "수도권제1순환선": "옛 이름 서울외곽순환선이에요.",
+};
+const KMAX = 12;
+let D, COLOR, LINES, ORDER, CANDS, BBOX;
+let view = { k: 1, tx: 0, ty: 0 };
+let sel = null;
+let badges = [];
+let cw = 700;
+
+function commonName(nm) {
+  let s = nm, tail = "";
+  if (s.endsWith("의 지선")) { s = s.slice(0, -4); tail = " 지선"; }
+  s = s.replace(/~/g, "");
+  if (!s.endsWith("지선") && s.endsWith("선")) s = s.slice(0, -1);
+  return s + "고속도로" + tail;
+}
+function parsePath(d) {
+  const lines = [];
+  for (const seg of d.split("M")) {
+    if (!seg) continue;
+    const n = (seg.match(/-?\d+/g) || []).map(Number);
+    if (n.length < 2) continue;
+    let x = n[0], y = n[1];
+    const pts = [[x, y]];
+    for (let j = 2; j + 1 < n.length; j += 2) { x += n[j]; y += n[j + 1]; pts.push([x, y]); }
+    lines.push(pts);
+  }
+  return lines;
+}
+function prio(i) {
+  const n = Number(D.R[i][0]);
+  if (n === 1 || (n < 100 && n % 5 === 0)) return 0;
+  return n < 100 ? 1 : 2;
+}
+function clampView(v) {
+  const k = Math.min(KMAX, Math.max(1, v.k));
+  const tx = Math.min(0, Math.max(D.W * (1 - k), v.tx));
+  const ty = Math.min(0, Math.max(D.H * (1 - k), v.ty));
+  return { k, tx, ty };
+}
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const L = dx * dx + dy * dy;
+  let t = L > 0 ? ((px - ax) * dx + (py - ay) * dy) / L : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function computeBadges() {
+  const box = document.getElementById("map");
+  const r = box.getBoundingClientRect();
+  cw = r.width || 700;
+  const ch = cw * D.H / D.W;
+  const ppu = cw / D.W;
+  const { k, tx, ty } = view;
+  const out = [];
+  const order = sel !== null ? [sel, ...ORDER.filter(i => i !== sel)] : ORDER;
+  const maxper = k < 1.6 ? 1 : k < 4 ? 2 : 3;
+  for (const i of order) {
+    const ref = D.R[i][0];
+    const w = 12 + 7.5 * ref.length;
+    const mine = [];
+    for (const c of CANDS[i]) {
+      const sx = (c[0] * k + tx) * ppu, sy = (c[1] * k + ty) * ppu;
+      if (sx < w / 2 + 2 || sx > cw - w / 2 - 2 || sy < 12 || sy > ch - 12) continue;
+      if (out.some(p => Math.abs(sx - p.sx) < (w + p.w) / 2 + 4 && Math.abs(sy - p.sy) < 23)) continue;
+      if (mine.some(m => Math.hypot(sx - m[0], sy - m[1]) < 170)) continue;
+      out.push({ i, sx, sy, w });
+      mine.push([sx, sy]);
+      if (mine.length >= (i === sel ? 3 : maxper)) break;
+    }
+  }
+  badges = out;
+  return { ppu, ch };
+}
+
+function render() {
+  const base = document.getElementById("base");
+  const overlay = document.getElementById("overlay");
+  const panel = document.getElementById("panel");
+  const { k, tx, ty } = view;
+  const { ppu } = computeBadges();
+
+  let g = base.querySelector("g#world");
+  if (!g) {
+    base.innerHTML = "";
+    g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.id = "world";
+    const prk = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    prk.setAttribute("d", D.prk); prk.setAttribute("fill", "var(--prk)"); prk.setAttribute("stroke", "var(--border)");
+    prk.setAttribute("stroke-width", "0.8"); prk.setAttribute("vector-effect", "non-scaling-stroke");
+    const kor = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    kor.setAttribute("d", D.kor); kor.setAttribute("fill", "var(--land)"); kor.setAttribute("stroke", "var(--border-strong)");
+    kor.setAttribute("stroke-width", "0.8"); kor.setAttribute("vector-effect", "non-scaling-stroke");
+    g.appendChild(prk); g.appendChild(kor);
+    for (const i of ORDER.slice().reverse()) {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", D.R[i][4]); p.setAttribute("fill", "none");
+      p.setAttribute("stroke", COLOR[D.R[i][0]]); p.setAttribute("stroke-linecap", "round");
+      p.setAttribute("stroke-linejoin", "round"); p.setAttribute("vector-effect", "non-scaling-stroke");
+      p.dataset.i = String(i); p.classList.add("route");
+      g.appendChild(p);
+    }
+    base.appendChild(g);
+    base.setAttribute("viewBox", `0 0 ${D.W} ${D.H}`);
+  }
+  g.setAttribute("transform", `translate(${tx} ${ty}) scale(${k})`);
+  g.querySelectorAll("path.route").forEach(p => {
+    const i = Number(p.dataset.i);
+    p.setAttribute("stroke-width", sel === i ? 5 : prio(i) === 0 ? 2.6 : 1.8);
+    p.setAttribute("opacity", sel === null || sel === i ? 1 : 0.22);
+  });
+
+  let html = "";
+  D.cities.filter(c => c[3] === 1 || k >= 2.2).forEach(c => {
+    const x = (c[1] * k + tx) * ppu, y = (c[2] * k + ty) * ppu;
+    html += `<circle cx="${x}" cy="${y}" r="2.5" fill="var(--text2)"/>`;
+    html += `<text x="${x + 5}" y="${y - 4}" font-size="${c[3] === 1 ? 12 : 10.5}" fill="var(--text2)" stroke="var(--halo)" stroke-width="3" paint-order="stroke" font-family="var(--font)">${c[0]}</text>`;
+  });
+  badges.forEach((b, n) => {
+    const ref = D.R[b.i][0];
+    const dim = sel !== null && sel !== b.i;
+    html += `<g opacity="${dim ? 0.35 : 1}" data-badge="${b.i}">`;
+    html += `<rect x="${b.sx - b.w / 2}" y="${b.sy - 10}" width="${b.w}" height="20" rx="6" fill="${COLOR[ref]}" stroke="var(--halo)" stroke-width="${sel === b.i ? 3 : 1.5}"/>`;
+    html += `<text x="${b.sx}" y="${b.sy + 4.2}" text-anchor="middle" font-size="12" font-weight="700" fill="#fff" font-family="var(--font)">${ref}</text></g>`;
+  });
+  overlay.innerHTML = html;
+
+  if (sel !== null) {
+    const r = D.R[sel];
+    panel.style.display = "block";
+    panel.innerHTML = `<div class="row"><span class="badge" style="background:${COLOR[r[0]]}">${r[0]}</span><span class="name">${commonName(r[1])}</span><button type="button" class="close" id="panelClose">닫기</button></div>` +
+      `<div class="meta">OSM 이름: 고속국도 ${r[1]}${r[2] ? ` · 옛 이름 ${r[2]}` : ""}${r[3] ? ` · 별칭 ${r[3]}` : ""}</div>` +
+      (NOTES[r[1]] ? `<div class="note">${NOTES[r[1]]}</div>` : "");
+    document.getElementById("panelClose").onclick = (e) => { e.stopPropagation(); setSel(null); };
+    panel.onpointerdown = (e) => e.stopPropagation();
+    panel.onpointerup = (e) => e.stopPropagation();
+  } else {
+    panel.style.display = "none";
+    panel.innerHTML = "";
+  }
+  const find = document.getElementById("find");
+  if (find.value !== (sel !== null ? String(sel) : "")) find.value = sel !== null ? String(sel) : "";
+}
+
+function setView(f) { view = clampView(typeof f === "function" ? f(view) : f); render(); }
+function setSel(i) { sel = i; render(); }
+
+function zoomBy(f) {
+  setView(v => {
+    const cx = D.W / 2, cy = D.H / 2;
+    const mx = (cx - v.tx) / v.k, my = (cy - v.ty) / v.k;
+    const nk = Math.min(KMAX, Math.max(1, v.k * f));
+    return { k: nk, tx: cx - mx * nk, ty: cy - my * nk };
+  });
+}
+function focus(i) {
+  const b = BBOX[i];
+  const bw = Math.max(40, b[2] - b[0]), bh = Math.max(40, b[3] - b[1]);
+  const nk = Math.min(8, Math.max(1, 0.75 * Math.min(D.W / bw, D.H / bh)));
+  const cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+  view = clampView({ k: nk, tx: D.W / 2 - cx * nk, ty: D.H / 2 - cy * nk });
+  sel = i;
+  render();
+}
+
+function setupGestures() {
+  const el = document.getElementById("map");
+  const ptrs = new Map();
+  const gesture = { moved: false, sx: 0, sy: 0, multi: false };
+  const local = (e) => {
+    const r = el.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  el.addEventListener("pointerdown", (e) => {
+    if (e.target.closest && e.target.closest("#panel")) return;
+    const p = local(e);
+    el.setPointerCapture(e.pointerId);
+    ptrs.set(e.pointerId, p);
+    if (ptrs.size === 1) Object.assign(gesture, { moved: false, sx: p.x, sy: p.y, multi: false });
+    else gesture.multi = true;
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!ptrs.has(e.pointerId)) return;
+    const p = local(e);
+    const prev = ptrs.get(e.pointerId);
+    const ppu = cw / D.W;
+    if (ptrs.size === 1) {
+      if (Math.hypot(p.x - gesture.sx, p.y - gesture.sy) > 6) gesture.moved = true;
+      if (gesture.moved) {
+        const dx = (p.x - prev.x) / ppu, dy = (p.y - prev.y) / ppu;
+        setView(v => ({ k: v.k, tx: v.tx + dx, ty: v.ty + dy }));
+      }
+      ptrs.set(e.pointerId, p);
+    } else if (ptrs.size === 2) {
+      const others = [...ptrs.entries()].filter(([id]) => id !== e.pointerId);
+      const o = others[0][1];
+      const d0 = Math.hypot(prev.x - o.x, prev.y - o.y), d1 = Math.hypot(p.x - o.x, p.y - o.y);
+      const m0x = (prev.x + o.x) / 2, m0y = (prev.y + o.y) / 2, m1x = (p.x + o.x) / 2, m1y = (p.y + o.y) / 2;
+      const f = d0 > 0 ? d1 / d0 : 1;
+      setView(v => {
+        const mx = (m0x / ppu - v.tx) / v.k, my = (m0y / ppu - v.ty) / v.k;
+        const nk = Math.min(KMAX, Math.max(1, v.k * f));
+        return { k: nk, tx: m1x / ppu - mx * nk, ty: m1y / ppu - my * nk };
+      });
+      gesture.moved = true;
+      ptrs.set(e.pointerId, p);
+    }
+  });
+  const onUp = (e) => {
+    const had = ptrs.has(e.pointerId);
+    ptrs.delete(e.pointerId);
+    if (!had || ptrs.size > 0) return;
+    if (gesture.moved || gesture.multi) return;
+    const p = local(e);
+    const hitB = badges.find(b => Math.abs(p.x - b.sx) < b.w / 2 + 6 && Math.abs(p.y - b.sy) < 15);
+    if (hitB) { setSel(hitB.i === sel ? null : hitB.i); return; }
+    const ppu = cw / D.W;
+    const { k, tx, ty } = view;
+    const mx = (p.x / ppu - tx) / k, my = (p.y / ppu - ty) / k;
+    const tol = 14 / (ppu * k);
+    let best = -1, bd = tol;
+    LINES.forEach((ls, i) => {
+      ls.forEach(l => {
+        for (let j = 1; j < l.length; j++) {
+          const dd = segDist(mx, my, l[j - 1][0], l[j - 1][1], l[j][0], l[j][1]);
+          if (dd < bd) { bd = dd; best = i; }
+        }
+      });
+    });
+    setSel(best >= 0 ? best : null);
+  };
+  el.addEventListener("pointerup", onUp);
+  el.addEventListener("pointercancel", onUp);
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = el.getBoundingClientRect();
+    const ppu = r.width / D.W;
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    const f = Math.exp(-e.deltaY * 0.0015);
+    setView(v => {
+      const mx = (px / ppu - v.tx) / v.k, my = (py / ppu - v.ty) / v.k;
+      const k = Math.min(KMAX, Math.max(1, v.k * f));
+      return { k, tx: px / ppu - mx * k, ty: py / ppu - my * k };
+    });
+  }, { passive: false });
+  new ResizeObserver(() => render()).observe(el);
+}
+
+async function main() {
+  const res = await fetch("data.json");
+  D = await res.json();
+  const refs = [...new Set(D.R.map(r => r[0]))].sort((a, b) => Number(a) - Number(b));
+  COLOR = {}; refs.forEach((r, i) => { COLOR[r] = PAL[i % PAL.length]; });
+  LINES = D.R.map(r => parsePath(r[4]));
+  ORDER = D.R.map((_, i) => i).sort((a, b) => prio(a) - prio(b) || D.R[b][5].length - D.R[a][5].length);
+  CANDS = D.R.map(r => {
+    const c = r[5].slice();
+    const mid = (c.length - 1) / 2;
+    return c.map((p, i) => ({ p, k: Math.abs(i - mid) })).sort((a, b) => a.k - b.k).map(o => o.p);
+  });
+  BBOX = LINES.map(ls => {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    ls.forEach(l => l.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }));
+    return [x0, y0, x1, y1];
+  });
+
+  const find = document.getElementById("find");
+  const opts = ORDER.slice().sort((a, b) => Number(D.R[a][0]) - Number(D.R[b][0]) || a - b);
+  opts.forEach(i => {
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = `${D.R[i][0]} · ${commonName(D.R[i][1])}`;
+    find.appendChild(o);
+  });
+  find.onchange = () => { if (find.value !== "") focus(Number(find.value)); };
+
+  const tbody = document.getElementById("routeTable");
+  opts.forEach(i => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${D.R[i][0]}</td><td>${commonName(D.R[i][1])}</td><td>고속국도 ${D.R[i][1]}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("btnZoomIn").onclick = () => zoomBy(1.7);
+  document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.7);
+  document.getElementById("btnReset").onclick = () => { view = { k: 1, tx: 0, ty: 0 }; sel = null; render(); };
+
+  setupGestures();
+  render();
+}
+main().catch(err => {
+  document.body.insertAdjacentHTML("afterbegin", `<p style="color:#b91c1c">지도 데이터를 불러오지 못했어요: ${err}</p>`);
+});
+</script>
+</body>
+</html>
