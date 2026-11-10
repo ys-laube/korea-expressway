@@ -1,0 +1,171 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate data.json and index.html
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = Path(".")
+          errors = []
+
+          def fail(message):
+              errors.append(message)
+
+          data_path = root / "data.json"
+          try:
+              data = json.loads(data_path.read_text(encoding="utf-8"))
+          except json.JSONDecodeError as exc:
+              fail(f"data.json is not valid JSON: {exc}")
+              data = None
+
+          if isinstance(data, dict):
+              for key in ("W", "H", "kor", "prk", "cities", "R"):
+                  if key not in data:
+                      fail(f"data.json missing {key}")
+              if isinstance(data.get("W"), int) and isinstance(data.get("H"), int):
+                  if data["W"] <= 0 or data["H"] <= 0:
+                      fail("data.json W and H must be positive")
+              else:
+                  fail("data.json W and H must be integers")
+              for key in ("kor", "prk"):
+                  value = data.get(key)
+                  if not isinstance(value, str) or not value.startswith("M"):
+                      fail(f"data.json {key} must be an SVG path")
+              cities = data.get("cities")
+              if not isinstance(cities, list) or not cities:
+                  fail("data.json cities must be a non-empty list")
+              else:
+                  for index, city in enumerate(cities):
+                      if (
+                          not isinstance(city, list)
+                          or len(city) != 4
+                          or not isinstance(city[0], str)
+                          or city[0] == ""
+                      ):
+                          fail(f"data.json cities[{index}] must be [name, x, y, rank]")
+                          break
+              routes = data.get("R")
+              if not isinstance(routes, list) or not routes:
+                  fail("data.json R must be a non-empty list")
+              else:
+                  for index, route in enumerate(routes):
+                      if not isinstance(route, list) or len(route) != 6:
+                          fail(f"data.json R[{index}] must have 6 fields")
+                          break
+                      ref, name, _former, _alias, path, candidates = route
+                      if not isinstance(ref, str) or not ref.isdigit():
+                          fail(f"data.json R[{index}] route number is invalid")
+                          break
+                      if not isinstance(name, str) or name == "":
+                          fail(f"data.json R[{index}] is missing a name")
+                          break
+                      if not isinstance(path, str) or not path.startswith("M"):
+                          fail(f"data.json R[{index}] path is invalid")
+                          break
+                      if not isinstance(candidates, list) or not candidates:
+                          fail(f"data.json R[{index}] has no shield candidates")
+                          break
+          elif data is not None:
+              fail("data.json must be an object")
+
+          html_path = root / "index.html"
+          html = html_path.read_text(encoding="utf-8")
+          required_bits = [
+              "<!DOCTYPE html>",
+              '<html lang="ko">',
+              "<title>대한민국 고속도로 번호 지도</title>",
+              'name="description"',
+              'property="og:title"',
+              'property="og:description"',
+              'property="og:image" content="https://ys-laube.github.io/korea-expressway/screenshot.png"',
+              'rel="icon" href="favicon.svg"',
+              'id="map"',
+              'fetch("data.json")',
+              "</html>",
+          ]
+          for bit in required_bits:
+              if bit not in html:
+                  fail(f"index.html missing {bit}")
+          if html.lower().count("<html") != 1 or html.lower().count("</html>") != 1:
+              fail("index.html must contain one html document")
+
+          favicon = root / "favicon.svg"
+          if not favicon.is_file():
+              fail("favicon.svg is missing")
+          else:
+              try:
+                  svg = ET.fromstring(favicon.read_text(encoding="utf-8"))
+              except ET.ParseError as exc:
+                  fail(f"favicon.svg is not valid XML: {exc}")
+                  svg = None
+              if svg is not None and not svg.tag.endswith("svg"):
+                  fail("favicon.svg root element must be svg")
+
+          screenshot = root / "screenshot.png"
+          png = screenshot.read_bytes() if screenshot.is_file() else b""
+          if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+              fail("screenshot.png must be a PNG")
+          elif len(png) < 1000:
+              fail("screenshot.png looks empty")
+
+          if errors:
+              print("\n".join(errors), file=sys.stderr)
+              sys.exit(1)
+          print(
+              f"ok routes={len(data['R'])} cities={len(data['cities'])} "
+              f"html={len(html)} bytes"
+          )
+          PY
+
+      - name: Assemble site
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p _site
+          cp index.html data.json favicon.svg screenshot.png _site/
+
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
